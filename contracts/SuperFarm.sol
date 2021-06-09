@@ -39,6 +39,8 @@ contract SuperFarm is Ownable {
     uint256 public _startBlock;
     // The block number when farming ends.
     uint256 public _bonusEndBlock;
+    
+    uint256 private constant E12 = 1e12;
 
     event Deposit(address indexed user, uint256 amount);
     event Withdraw(address indexed user, uint256 amount);
@@ -87,9 +89,9 @@ contract SuperFarm is Ownable {
         if (block.number > _pool.lastRewardBlock && lpSupply != 0) {
             uint256 num = getElapsedBlockSinceUpdate();
             uint256 tokenReward = num.mul(_rewardPerBlock);
-            accRewardPerShare = accRewardPerShare.add(tokenReward.mul(1e12).div(lpSupply));
+            accRewardPerShare = accRewardPerShare.add(tokenReward.mul(E12).div(lpSupply));
         }
-        return user.amount.mul(accRewardPerShare).div(1e12).sub(user.rewardDebt);
+        return user.amount.mul(accRewardPerShare).div(E12).sub(user.rewardDebt);
     }
 
     // Update reward variables of the pool to be up-to-date.
@@ -104,7 +106,7 @@ contract SuperFarm is Ownable {
         }
         uint256 num = getElapsedBlockSinceUpdate();
         uint256 tokenReward = num.mul(_rewardPerBlock);
-        _pool.accRewardTokenPerShare = _pool.accRewardTokenPerShare.add(tokenReward.mul(1e12).div(lpSupply));
+        _pool.accRewardTokenPerShare = _pool.accRewardTokenPerShare.add(tokenReward.mul(E12).div(lpSupply));
         _pool.lastRewardBlock = block.number;
     }
 
@@ -114,7 +116,7 @@ contract SuperFarm is Ownable {
         UserInfo storage user = _userInfo[msg.sender];
         updatePool();
         if (user.amount > 0) {
-            uint256 pending = user.amount.mul(_pool.accRewardTokenPerShare).div(1e12).sub(user.rewardDebt);
+            uint256 pending = user.amount.mul(_pool.accRewardTokenPerShare).div(E12).sub(user.rewardDebt);
             if(pending > 0) {
                 _rewardToken.safeTransfer(address(msg.sender), pending);
             }
@@ -123,7 +125,7 @@ contract SuperFarm is Ownable {
             _pool.lpToken.safeTransferFrom(address(msg.sender), address(this), amount);
             user.amount = user.amount.add(amount);
         }
-        user.rewardDebt = user.amount.mul(_pool.accRewardTokenPerShare).div(1e12);
+        user.rewardDebt = user.amount.mul(_pool.accRewardTokenPerShare).div(E12);
 
         emit Deposit(msg.sender, amount);
     }
@@ -133,7 +135,7 @@ contract SuperFarm is Ownable {
         UserInfo storage user = _userInfo[msg.sender];
         require(user.amount >= amount, "withdraw: amount exceeded");
         updatePool();
-        uint256 pending = user.amount.mul(_pool.accRewardTokenPerShare).div(1e12).sub(user.rewardDebt);
+        uint256 pending = user.amount.mul(_pool.accRewardTokenPerShare).div(E12).sub(user.rewardDebt);
         if(pending > 0) {
             _rewardToken.safeTransfer(address(msg.sender), pending);
         }
@@ -141,7 +143,7 @@ contract SuperFarm is Ownable {
             user.amount = user.amount.sub(amount);
             _pool.lpToken.safeTransfer(address(msg.sender), amount);
         }
-        user.rewardDebt = user.amount.mul(_pool.accRewardTokenPerShare).div(1e12);
+        user.rewardDebt = user.amount.mul(_pool.accRewardTokenPerShare).div(E12);
 
         emit Withdraw(msg.sender, amount);
     }
