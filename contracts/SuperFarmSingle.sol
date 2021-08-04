@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract SuperFarm is Ownable {
+contract SuperFarmSingle is Ownable {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -19,14 +19,14 @@ contract SuperFarm is Ownable {
 
     // Info of each pool.
     struct PoolInfo {
-        IERC20 lpToken;                     // Address of LP token contract.
         uint256 lastRewardBlock;            // Last block number for reward distribution.
         uint256 accRewardTokenPerShare;     // Accumulated Reward Token per share, times 1e12. See below.
     }
     
-    // LPtoken and Reward token
+    // Staked token and Reward token
     IERC20 public _inToken;
     IERC20 public _rewardToken;
+    address public _rewardVault;
 
     // Info of each user that stakes LP tokens.
     mapping (address => UserInfo) public _userInfo;
@@ -39,7 +39,7 @@ contract SuperFarm is Ownable {
     uint256 public _startBlock;
     // The block number when farming ends.
     uint256 public _bonusEndBlock;
-    
+
     uint256 private constant E12 = 1e12;
 
     event Deposit(address indexed user, uint256 amount);
@@ -49,18 +49,20 @@ contract SuperFarm is Ownable {
     constructor(
         IERC20 inToken,
         IERC20 rewardToken,
+        address rewardVault,
         uint256 rewardPerBlock,
         uint256 startBlock,
         uint256 bonusEndBlock
     ) {
+        require(rewardVault!=address(0), "Invalid address");
         _inToken = inToken;
         _rewardToken = rewardToken;
+        _rewardVault = rewardVault;
         _rewardPerBlock = rewardPerBlock;
         _startBlock = startBlock;
         _bonusEndBlock = bonusEndBlock;
 
         _pool = PoolInfo({
-            lpToken: _inToken,
             lastRewardBlock: startBlock,
             accRewardTokenPerShare: 0
         });
@@ -85,11 +87,11 @@ contract SuperFarm is Ownable {
     function pendingReward(address from) external view returns (uint256) {
         UserInfo storage user = _userInfo[from];
         uint256 accRewardPerShare = _pool.accRewardTokenPerShare;
-        uint256 lpSupply = _pool.lpToken.balanceOf(address(this));
-        if (block.number > _pool.lastRewardBlock && lpSupply != 0) {
+        uint256 totalStaked = _inToken.balanceOf(address(this));
+        if (block.number > _pool.lastRewardBlock && totalStaked != 0) {
             uint256 num = getElapsedBlockSinceUpdate();
             uint256 tokenReward = num.mul(_rewardPerBlock);
-            accRewardPerShare = accRewardPerShare.add(tokenReward.mul(E12).div(lpSupply));
+            accRewardPerShare = accRewardPerShare.add(tokenReward.mul(E12).div(totalStaked));
         }
         return user.amount.mul(accRewardPerShare).div(E12).sub(user.rewardDebt);
     }
@@ -99,14 +101,14 @@ contract SuperFarm is Ownable {
         if (block.number <= _pool.lastRewardBlock) {
             return;
         }
-        uint256 lpSupply = _pool.lpToken.balanceOf(address(this));
-        if (lpSupply == 0) {
+        uint256 totalStaked = _inToken.balanceOf(address(this));
+        if (totalStaked == 0) {
             _pool.lastRewardBlock = block.number;
             return;
         }
         uint256 num = getElapsedBlockSinceUpdate();
         uint256 tokenReward = num.mul(_rewardPerBlock);
-        _pool.accRewardTokenPerShare = _pool.accRewardTokenPerShare.add(tokenReward.mul(E12).div(lpSupply));
+        _pool.accRewardTokenPerShare = _pool.accRewardTokenPerShare.add(tokenReward.mul(E12).div(totalStaked));
         _pool.lastRewardBlock = block.number;
     }
 
@@ -118,11 +120,11 @@ contract SuperFarm is Ownable {
         if (user.amount > 0) {
             uint256 pending = user.amount.mul(_pool.accRewardTokenPerShare).div(E12).sub(user.rewardDebt);
             if(pending > 0) {
-                _rewardToken.safeTransfer(address(msg.sender), pending);
+                _rewardToken.safeTransferFrom(_rewardVault, address(msg.sender), pending);
             }
         }
         if(amount > 0) {
-            _pool.lpToken.safeTransferFrom(address(msg.sender), address(this), amount);
+            _inToken.safeTransferFrom(address(msg.sender), address(this), amount);
             user.amount = user.amount.add(amount);
         }
         user.rewardDebt = user.amount.mul(_pool.accRewardTokenPerShare).div(E12);
@@ -137,11 +139,11 @@ contract SuperFarm is Ownable {
         updatePool();
         uint256 pending = user.amount.mul(_pool.accRewardTokenPerShare).div(E12).sub(user.rewardDebt);
         if(pending > 0) {
-            _rewardToken.safeTransfer(address(msg.sender), pending);
+            _rewardToken.safeTransferFrom(_rewardVault, address(msg.sender), pending);
         }
         if(amount > 0) {
             user.amount = user.amount.sub(amount);
-            _pool.lpToken.safeTransfer(address(msg.sender), amount);
+            _inToken.safeTransfer(address(msg.sender), amount);
         }
         user.rewardDebt = user.amount.mul(_pool.accRewardTokenPerShare).div(E12);
 
@@ -155,16 +157,10 @@ contract SuperFarm is Ownable {
     // Withdraw without caring about rewards. EMERGENCY ONLY.
     function emergencyWithdraw() external {
         UserInfo storage user = _userInfo[msg.sender];
-        _pool.lpToken.safeTransfer(address(msg.sender), user.amount);
+        _inToken.safeTransfer(address(msg.sender), user.amount);
         emit EmergencyWithdraw(msg.sender, user.amount);
 
         user.amount = 0;
         user.rewardDebt = 0;
-    }
-
-    // Withdraw reward. EMERGENCY ONLY.
-    function emergencyRewardWithdraw(uint256 amount) external onlyOwner {
-        require(amount <= _rewardToken.balanceOf(address(this)), 'Insufficient tokens');
-        _rewardToken.safeTransfer(address(msg.sender), amount);
     }
 }
